@@ -22,7 +22,13 @@ export namespace Auth {
     token: z.string(),
   })
 
-  export const Info = z.discriminatedUnion("type", [Oauth, Api, WellKnown])
+  export const ChatGPT = z.object({
+    type: z.literal("chatgpt"),
+    access_token: z.string(),
+    account_id: z.string(),
+  })
+
+  export const Info = z.discriminatedUnion("type", [Oauth, Api, WellKnown, ChatGPT])
   export type Info = z.infer<typeof Info>
 
   const filepath = path.join(Global.Path.data, "auth.json")

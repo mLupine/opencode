@@ -7,6 +7,7 @@ import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { AuthAnthropic } from "../auth/anthropic"
 import { AuthCopilot } from "../auth/copilot"
+import { AuthCodex } from "../auth/codex"
 import { ModelsDev } from "./models"
 import { NamedError } from "../util/error"
 import { Auth } from "../auth"
@@ -127,7 +128,42 @@ export namespace Provider {
         },
       }
     },
-    openai: async () => {
+    openai: async (provider) => {
+      const auth = await Auth.get("openai")
+      if (auth?.type === "chatgpt") {
+        if (provider && provider.models) {
+          for (const model of Object.values(provider.models)) {
+            model.cost = {
+              input: 0,
+              output: 0,
+            }
+          }
+        }
+        return {
+          autoload: true,
+          options: {
+            apiKey: "",
+            baseURL: "https://chatgpt.com/backend-api/codex",
+            async fetch(input: any, init: any) {
+              const currentAuth = await Auth.get("openai")
+              if (currentAuth?.type !== "chatgpt") return fetch(input, init)
+              const headers: Record<string, string> = {
+                ...init.headers,
+                Authorization: `Bearer ${currentAuth.access_token}`,
+                "chatgpt-account-id": currentAuth.account_id,
+                originator: "codex_cli_rs",
+                "user-agent": AuthCodex.getUserAgent(),
+              }
+              delete headers["x-api-key"]
+              return fetch(input, {
+                ...init,
+                headers,
+              })
+            },
+          },
+        }
+      }
+
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string) {

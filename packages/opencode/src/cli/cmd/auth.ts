@@ -1,5 +1,6 @@
 import { AuthAnthropic } from "../../auth/anthropic"
 import { AuthCopilot } from "../../auth/copilot"
+import { AuthCodex } from "../../auth/codex"
 import { Auth } from "../../auth"
 import { cmd } from "./cmd"
 import * as prompts from "@clack/prompts"
@@ -102,39 +103,69 @@ export const AuthLoginCommand = cmd({
     }
     await ModelsDev.refresh().catch(() => {})
     const providers = await ModelsDev.get()
+    const chatGptAuth = await AuthCodex.get()
+
     const priority: Record<string, number> = {
-      anthropic: 0,
-      "github-copilot": 1,
-      openai: 2,
-      google: 3,
-      openrouter: 4,
-      vercel: 5,
+      "openai-codex": 1,
+      anthropic: 2,
+      "github-copilot": 3,
+      openai: 4,
+      google: 5,
+      openrouter: 6,
+      vercel: 7,
     }
+
+    const providerOptions = [
+      ...pipe(
+        providers,
+        values(),
+        sortBy(
+          (x) => priority[x.id] ?? 99,
+          (x) => x.name ?? x.id,
+        ),
+        map((x) => ({
+          label: x.name,
+          value: x.id,
+          hint: priority[x.id] === 0 ? "recommended" : undefined,
+        })),
+      ),
+      {
+        value: "other",
+        label: "Other",
+      },
+    ]
+
+    if (chatGptAuth) {
+      providerOptions.unshift({
+        label: "Login with ChatGPT (use Codex CLI auth)",
+        value: "openai-codex",
+        hint: "recommended",
+      })
+    }
+
     let provider = await prompts.autocomplete({
       message: "Select provider",
       maxItems: 8,
-      options: [
-        ...pipe(
-          providers,
-          values(),
-          sortBy(
-            (x) => priority[x.id] ?? 99,
-            (x) => x.name ?? x.id,
-          ),
-          map((x) => ({
-            label: x.name,
-            value: x.id,
-            hint: priority[x.id] === 0 ? "recommended" : undefined,
-          })),
-        ),
-        {
-          value: "other",
-          label: "Other",
-        },
-      ],
+      options: providerOptions,
     })
 
     if (prompts.isCancel(provider)) throw new UI.CancelledError()
+
+    if (provider === "openai-codex") {
+      const auth = await AuthCodex.get()
+      if (auth) {
+        await Auth.set("openai", {
+          type: "chatgpt",
+          access_token: auth.tokens.access_token,
+          account_id: auth.tokens.account_id,
+        })
+        prompts.log.success("Login successful")
+      } else {
+        prompts.log.error("Could not find ChatGPT authentication file.")
+      }
+      prompts.outro("Done")
+      return
+    }
 
     if (provider === "other") {
       provider = await prompts.text({
